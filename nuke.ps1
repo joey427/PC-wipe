@@ -30,7 +30,14 @@ Step "1/7" "Alles stoppen"
 foreach ($s in @("NvContainerLocalSystem","NvContainerNetworkService",
     "NVDisplay.ContainerLocalSystem","nvagent","NvTelemetryContainer",
     "Steam Client Service","EpicOnlineServices","dmwappushservice","DiagTrack",
-    "Discord Update","DiscordService")) { StopSvc $s }
+    "Discord Update","DiscordService",
+    "RiotClientService","vgc","vgk","RiotClientCrashHandler")) { StopSvc $s }
+
+# Vanguard kernel driver forceren via sc
+foreach ($d in @("vgk","vgc")) {
+    sc.exe stop $d 2>$null
+    sc.exe delete $d 2>$null
+}
 
 # Stop alle niet-systeem processen
 $systemProcs = @("System","smss","csrss","wininit","winlogon","services","lsass",
@@ -247,7 +254,16 @@ if (Test-Path $chocoExe) {
     } catch { Warn "NVIDIA App ophalen mislukt" }
 }
 
-InstallDirect "Riot Client / Valorant" "https://valorant.secure.dyn.riotcdn.net/channels/public/x/installer/current/live.exe" "--skip-to-install"
+# Valorant bootstrapper: niet wachten, hij downloadt zelf verder op de achtergrond
+Write-Host "    Riot Client / Valorant..." -NoNewline
+$valFile = "$tmp\valorant_setup.exe"
+try {
+    (New-Object System.Net.WebClient).DownloadFile(
+        "https://valorant.secure.dyn.riotcdn.net/channels/public/x/installer/current/live.exe",
+        $valFile)
+    Start-Process $valFile -ArgumentList "--skip-to-install" -NoNewWindow
+    Write-Host " gestart (installeert op achtergrond)" -ForegroundColor Green
+} catch { Write-Host " mislukt: $_" -ForegroundColor Yellow }
 
 Write-Host "`n============================================" -ForegroundColor Green
 Write-Host " Klaar! PC is clean, apps zijn terug." -ForegroundColor Green
