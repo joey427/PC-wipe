@@ -18,7 +18,8 @@ Write-Host " H20 NUKE - Cleanup + Herinstallatie" -ForegroundColor Red
 Write-Host "============================================`n" -ForegroundColor Red
 
 # ─── 0. Winget localiseren ────────────────────────────────────────────────────
-$winget = (Get-Command winget -ErrorAction SilentlyContinue)?.Source
+$wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
+$winget = if ($wingetCmd) { $wingetCmd.Source } else { $null }
 if (!$winget) { $winget = "$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe" }
 if (!(Test-Path $winget)) {
     $winget = Get-ChildItem "C:\Program Files\WindowsApps\Microsoft.DesktopAppInstaller_*\winget.exe" `
