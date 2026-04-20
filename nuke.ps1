@@ -16,96 +16,177 @@ function NukePath([string]$path) {
 }
 
 function StopSvc([string]$name) {
-    Stop-Service -Name $name -Force -ErrorAction SilentlyContinue
-    Set-Service  -Name $name -StartupType Disabled -ErrorAction SilentlyContinue
+    Stop-Service  -Name $name -Force        -ErrorAction SilentlyContinue
+    Set-Service   -Name $name -StartupType Disabled -ErrorAction SilentlyContinue
 }
 
 Write-Host "`n============================================" -ForegroundColor Red
-Write-Host " H20 NUKE - Cleanup + Herinstallatie" -ForegroundColor Red
+Write-Host " H20 NUKE - Alles weg, fresh start" -ForegroundColor Red
 Write-Host "============================================`n" -ForegroundColor Red
 
-# ─── 1. Services en processen stoppen ────────────────────────────────────────
-Step "1/6" "Services en processen stoppen"
+# ─── 1. Alle services en processen stoppen ───────────────────────────────────
+Step "1/7" "Alles stoppen"
 
 foreach ($s in @("NvContainerLocalSystem","NvContainerNetworkService",
     "NVDisplay.ContainerLocalSystem","nvagent","NvTelemetryContainer",
-    "Steam Client Service","EpicOnlineServices","dmwappushservice","DiagTrack")) {
-    StopSvc $s
-}
+    "Steam Client Service","EpicOnlineServices","dmwappushservice","DiagTrack",
+    "Discord Update","DiscordService")) { StopSvc $s }
 
-foreach ($p in @("steam","steamwebhelper","steamservice","EpicGamesLauncher",
-    "EpicWebHelper","RiotClientServices","RiotClientUx","RiotClientUxRender",
-    "VALORANT","Battle.net","Agent","EADesktop","Origin",
-    "NvBackend","nvsphelper64","NVDisplay.Container","NVIDIA Share","nvcontainer","nvcplui")) {
-    Get-Process -Name $p -ErrorAction SilentlyContinue | ForEach-Object { $_.Kill(); OK "Gestopt: $($_.Name)" }
+# Stop alle niet-systeem processen
+$systemProcs = @("System","smss","csrss","wininit","winlogon","services","lsass",
+    "svchost","dwm","explorer","taskhostw","spoolsv","SearchIndexer","audiodg",
+    "fontdrvhost","sihost","ctfmon","powershell","cmd","conhost","lsaiso","Memory Compression")
+
+Get-Process | Where-Object {
+    $_.Name -notin $systemProcs -and
+    $_.Name -notlike "Microsoft*" -and
+    $_.Name -notlike "Windows*" -and
+    $_.SessionId -gt 0
+} | ForEach-Object {
+    $_.Kill()
+    OK "Gestopt: $($_.Name)"
 }
 Start-Sleep -Seconds 4
 
-# ─── 2. Bestanden opruimen ────────────────────────────────────────────────────
-Step "2/6" "Bestanden opruimen"
+# ─── 2. Alle Win32 apps verwijderen ──────────────────────────────────────────
+Step "2/7" "Alle geinstalleerde apps verwijderen"
 
-foreach ($f in @(
-    "$env:ProgramFiles\Steam",
-    "${env:ProgramFiles(x86)}\Steam",
-    "$env:ProgramFiles\Epic Games",
-    "${env:ProgramFiles(x86)}\Epic Games",
-    "$env:ProgramFiles\Riot Games",
-    "${env:ProgramFiles(x86)}\Riot Games",
-    "${env:ProgramFiles(x86)}\Blizzard Entertainment",
-    "$env:ProgramFiles\Electronic Arts",
-    "$env:ProgramFiles\NVIDIA Corporation\NVIDIA app",
+# Nooit verwijderen
+$skip = @(
+    "Microsoft Visual C++","Microsoft .NET",".NET Runtime",".NET Desktop Runtime",
+    ".NET Host","DirectX","WebView2","Microsoft Edge","Windows SDK",
+    "Windows Update","Security Update","Update for Windows","Hotfix",
+    "Windows Defender","NVIDIA Graphics Driver","NVIDIA HD Audio",
+    "Intel","AMD","Realtek Audio","Realtek Ethernet","WinRAR","7-Zip",
+    "Microsoft Windows Desktop Runtime"
+)
+
+$regPaths = @(
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
+)
+
+$apps = Get-ItemProperty $regPaths -ErrorAction SilentlyContinue |
+    Where-Object { $_.DisplayName -and $_.UninstallString -and $_.SystemComponent -ne 1 }
+
+foreach ($app in $apps) {
+    $name = $app.DisplayName
+    $shouldSkip = $false
+    foreach ($s in $skip) {
+        if ($name -like "*$s*") { $shouldSkip = $true; break }
+    }
+    if ($shouldSkip) { continue }
+
+    Write-Host "    Verwijderen: $name..." -NoNewline
+    $us = $app.UninstallString
+
+    try {
+        if ($us -match "msiexec" -or $us -match "MsiExec") {
+            if ($us -match "(\{[A-F0-9\-]+\})" -or $us -match "(\{[a-f0-9\-]+\})") {
+                $guid = $Matches[1]
+                Start-Process msiexec -ArgumentList "/x $guid /qn /norestart REBOOT=ReallySuppress" -Wait -NoNewWindow
+            }
+        } else {
+            # Haal exe pad op (met of zonder quotes)
+            $exe = if ($us -match '^"([^"]+)"') { $Matches[1] } else { ($us -split " ")[0] }
+            $extraArgs = "/S /SILENT /VERYSILENT /UNINSTALL /quiet /norestart /SUPPRESSMSGBOXES"
+            if (Test-Path $exe) {
+                Start-Process $exe -ArgumentList $extraArgs -Wait -NoNewWindow
+            }
+        }
+        Write-Host " OK" -ForegroundColor Green
+    } catch {
+        Write-Host " overgeslagen" -ForegroundColor DarkGray
+    }
+}
+
+# ─── 3. AppX packages verwijderen (Store apps) ───────────────────────────────
+Step "3/7" "Windows Store apps verwijderen"
+
+$keepAppx = @("Microsoft.WindowsStore","Microsoft.Windows.Photos",
+    "Microsoft.WindowsCalculator","Microsoft.WindowsNotepad",
+    "Microsoft.DesktopAppInstaller","Microsoft.UI.Xaml*",
+    "Microsoft.VCLibs*","Microsoft.NET*","Microsoft.WindowsTerminal",
+    "MicrosoftWindows.Client*","Microsoft.Windows.StartMenuExperienceHost",
+    "Microsoft.Windows.ShellExperienceHost","windows.immersivecontrolpanel",
+    "InputApp","LockApp","Microsoft.AAD*","Microsoft.AccountsControl*",
+    "Microsoft.BioEnrollment","Microsoft.CredDialogHost","Microsoft.ECApp",
+    "Microsoft.LockApp","Microsoft.Win32WebViewHost","Microsoft.Windows.Apprep*",
+    "Microsoft.Windows.AssignedAccessLockApp","Microsoft.Windows.CloudExperienceHost",
+    "Microsoft.Windows.ContentDeliveryManager","Microsoft.Windows.OOBENetworkCaptivePortal",
+    "Microsoft.Windows.OOBENetworkConnectionFlow","Microsoft.Windows.PeopleExperienceHost",
+    "Microsoft.Windows.PinningConfirmationDialog","Microsoft.Windows.SecHealthUI",
+    "Microsoft.Windows.SecureAssessmentBrowser","Microsoft.XboxGameCallableUI")
+
+Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue | Where-Object {
+    $pkg = $_.Name
+    $keep = $false
+    foreach ($k in $keepAppx) {
+        if ($pkg -like $k) { $keep = $true; break }
+    }
+    !$keep
+} | ForEach-Object {
+    Write-Host "    AppX weg: $($_.Name)" -ForegroundColor DarkGray
+    Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+}
+OK "AppX opgeruimd"
+
+# ─── 4. AppData en overblijfselen opruimen ────────────────────────────────────
+Step "4/7" "AppData opruimen"
+
+# Bekende app-mappen in AppData
+$appDataFolders = @(
+    "$env:LOCALAPPDATA\Discord",
+    "$env:APPDATA\Discord",
     "$env:LOCALAPPDATA\Steam",
     "$env:LOCALAPPDATA\EpicGamesLauncher",
     "$env:LOCALAPPDATA\Riot Games",
     "$env:APPDATA\Riot Games",
+    "$env:LOCALAPPDATA\Programs\Opera",
+    "$env:LOCALAPPDATA\Programs\Opera GX",
+    "$env:APPDATA\Opera Software",
+    "$env:LOCALAPPDATA\Programs\Spotify",
+    "$env:APPDATA\Spotify",
+    "$env:LOCALAPPDATA\Telegram Desktop",
+    "$env:APPDATA\Telegram Desktop",
+    "$env:LOCALAPPDATA\WhatsApp",
+    "$env:APPDATA\WhatsApp",
     "$env:PROGRAMDATA\Epic",
-    "$env:PROGRAMDATA\Riot Games"
-)) { NukePath $f }
+    "$env:PROGRAMDATA\Riot Games",
+    "$env:PROGRAMDATA\Battle.net",
+    "$env:ProgramFiles\Riot Games",
+    "${env:ProgramFiles(x86)}\Steam",
+    "${env:ProgramFiles(x86)}\Epic Games",
+    "$env:ProgramFiles\Epic Games",
+    "$env:ProgramFiles\NVIDIA Corporation\NVIDIA app"
+)
+foreach ($f in $appDataFolders) { NukePath $f }
 
-foreach ($k in @("HKCU:\SOFTWARE\Valve","HKCU:\SOFTWARE\Epic Games","HKCU:\SOFTWARE\Riot Games",
-    "HKLM:\SOFTWARE\Valve","HKLM:\SOFTWARE\WOW6432Node\Valve",
-    "HKLM:\SOFTWARE\Epic Games","HKLM:\SOFTWARE\WOW6432Node\Epic Games",
-    "HKLM:\SOFTWARE\Riot Games","HKLM:\SOFTWARE\WOW6432Node\Riot Games")) {
-    if (Test-Path $k) {
-        Remove-Item $k -Recurse -Force -Confirm:$false -ErrorAction SilentlyContinue
-        OK "Registry: $k"
-    }
+# Temp files
+foreach ($t in @($env:TEMP, $env:TMP, "C:\Windows\Temp")) {
+    Get-ChildItem $t -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
+OK "AppData schoon"
+
+# ─── 5. Desktop en startmenu ─────────────────────────────────────────────────
+Step "5/7" "Desktop en startmenu leegmaken"
+
+foreach ($desktop in @("$env:PUBLIC\Desktop","$env:USERPROFILE\Desktop")) {
+    Get-ChildItem $desktop -Include "*.lnk","*.url" -ErrorAction SilentlyContinue |
+        Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
-# ─── 3. Desktop en startmenu opruimen ─────────────────────────────────────────
-Step "3/6" "Desktop en startmenu opruimen"
-
-$desktops = @(
-    "$env:PUBLIC\Desktop",
-    "$env:USERPROFILE\Desktop"
-)
-$shortcuts = @("Steam","Epic Games Launcher","Epic Games","VALORANT","Riot Client",
-    "Battle.net","Origin","EA Desktop","GeForce Experience","NVIDIA App")
-
-foreach ($d in $desktops) {
-    foreach ($s in $shortcuts) {
-        $lnk = "$d\$s.lnk"
-        $url = "$d\$s.url"
-        if (Test-Path $lnk) { Remove-Item $lnk -Force -ErrorAction SilentlyContinue; OK "Snelkoppeling weg: $s" }
-        if (Test-Path $url) { Remove-Item $url -Force -ErrorAction SilentlyContinue }
-    }
-}
-
-$startMenu = @(
-    "$env:APPDATA\Microsoft\Windows\Start Menu\Programs",
-    "$env:ProgramData\Microsoft\Windows\Start Menu\Programs"
-)
-foreach ($sm in $startMenu) {
-    foreach ($s in $shortcuts) {
-        NukePath "$sm\$s"
-        $lnk = "$sm\$s.lnk"
-        if (Test-Path $lnk) { Remove-Item $lnk -Force -ErrorAction SilentlyContinue }
-    }
+foreach ($sm in @("$env:APPDATA\Microsoft\Windows\Start Menu\Programs",
+    "$env:ProgramData\Microsoft\Windows\Start Menu\Programs")) {
+    Get-ChildItem $sm -Recurse -Include "*.lnk" -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notlike "*Windows*" -and $_.FullName -notlike "*Microsoft*" } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
 }
 OK "Desktop en startmenu schoon"
 
-# ─── 4. Privacy + MDM blokkade ────────────────────────────────────────────────
-Step "4/6" "Privacy en bedrijfsblokkade instellen"
+# ─── 6. Privacy + MDM blokkade ────────────────────────────────────────────────
+Step "6/7" "Privacy en bedrijfsblokkade instellen"
 
 New-Item "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftAccount" -Force | Out-Null
 Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftAccount" "DisableUserAuth" 1 -Type DWord
@@ -119,18 +200,14 @@ New-Item "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Force | Out
 Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowTelemetry" 0 -Type DWord
 OK "Privacy ingesteld"
 
-# ─── 5. Chocolatey installeren ────────────────────────────────────────────────
-Step "5/6" "Chocolatey installeren"
+# ─── 7. Apps herinstalleren ───────────────────────────────────────────────────
+Step "7/7" "Apps installeren"
 
 $chocoExe = "C:\ProgramData\chocolatey\bin\choco.exe"
 if (!(Test-Path $chocoExe)) {
     Set-ExecutionPolicy Bypass -Scope Process -Force
     iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 }
-if (Test-Path $chocoExe) { OK "Chocolatey gereed" } else { Warn "Chocolatey installatie mislukt" }
-
-# ─── 6. Apps installeren ──────────────────────────────────────────────────────
-Step "6/6" "Apps installeren"
 
 $tmp = "$env:TEMP\h20"
 New-Item $tmp -ItemType Directory -Force | Out-Null
@@ -139,13 +216,13 @@ function InstallChoco([string]$name, [string]$pkg) {
     Write-Host "    $name..." -NoNewline
     & $chocoExe install $pkg -y --no-progress --force 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) { Write-Host " OK" -ForegroundColor Green }
-    else { Write-Host " mislukt ($LASTEXITCODE)" -ForegroundColor Yellow }
+    else { Write-Host " mislukt" -ForegroundColor Yellow }
 }
 
 function InstallDirect([string]$name, [string]$url, [string]$installArgs) {
     Write-Host "    $name..." -NoNewline
     $ext  = if ($url -match "\.msi") { "msi" } else { "exe" }
-    $file = "$tmp\install_$([System.IO.Path]::GetRandomFileName()).$ext"
+    $file = "$tmp\$([System.IO.Path]::GetRandomFileName()).$ext"
     try {
         (New-Object System.Net.WebClient).DownloadFile($url, $file)
         if ($ext -eq "msi") { Start-Process msiexec -ArgumentList "/i `"$file`" $installArgs" -Wait -NoNewWindow }
@@ -157,15 +234,22 @@ function InstallDirect([string]$name, [string]$url, [string]$installArgs) {
 if (Test-Path $chocoExe) {
     InstallChoco "Steam"               "steam"
     InstallChoco "Epic Games Launcher" "epicgameslauncher"
+    InstallChoco "NVIDIA App"          "nvidia-app"
 } else {
     InstallDirect "Steam"               "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe" "/S"
     InstallDirect "Epic Games Launcher" "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi" "/qn /norestart"
+    # NVIDIA App: dynamisch laatste versie ophalen
+    try {
+        $nvPage = (New-Object System.Net.WebClient).DownloadString('https://www.nvidia.com/en-us/software/nvidia-app/')
+        if ($nvPage -match 'https://us\.download\.nvidia\.com/nvapp/client/[\d\.]+/NVIDIA_app_v[\d\.]+\.exe') {
+            InstallDirect "NVIDIA App" $Matches[0] "-s"
+        } else { Warn "NVIDIA App URL niet gevonden" }
+    } catch { Warn "NVIDIA App ophalen mislukt" }
 }
 
 InstallDirect "Riot Client / Valorant" "https://valorant.secure.dyn.riotcdn.net/channels/public/x/installer/current/live.exe" "--skip-to-install"
-InstallDirect "NVIDIA App"             "https://us.download.nvidia.com/nvapp/client/11.0.0.385/NVIDIA_app_v11.0.0.385.exe" "-s"
 
 Write-Host "`n============================================" -ForegroundColor Green
-Write-Host " Klaar! PC is schoon en apps zijn terug." -ForegroundColor Green
+Write-Host " Klaar! PC is clean, apps zijn terug." -ForegroundColor Green
 Write-Host "============================================`n" -ForegroundColor Green
 msg * "H20 Nuke klaar! Steam, Epic, Valorant en NVIDIA herinstalleerd."
