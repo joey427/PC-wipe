@@ -18,15 +18,40 @@ Write-Host " H20 NUKE - Cleanup + Herinstallatie" -ForegroundColor Red
 Write-Host "============================================`n" -ForegroundColor Red
 
 # ─── 0. Winget localiseren ────────────────────────────────────────────────────
-$wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
-$winget = if ($wingetCmd) { $wingetCmd.Source } else { $null }
-if (!$winget) { $winget = "$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe" }
-if (!(Test-Path $winget)) {
-    $winget = Get-ChildItem "C:\Program Files\WindowsApps\Microsoft.DesktopAppInstaller_*\winget.exe" `
-        -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1 -ExpandProperty FullName
+# Zoek winget op alle bekende locaties
+function Find-Winget {
+    $cmd = Get-Command winget -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $paths = @(
+        "$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe",
+        "C:\Users\h20\AppData\Local\Microsoft\WindowsApps\winget.exe"
+    )
+    foreach ($p in $paths) { if (Test-Path $p) { return $p } }
+    $found = Get-ChildItem "C:\Program Files\WindowsApps\Microsoft.DesktopAppInstaller_*\winget.exe" `
+        -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($found) { return $found.FullName }
+    return $null
 }
-if ($winget) { OK "winget: $winget" } else { Warn "winget niet gevonden" }
+
+$winget = Find-Winget
+
+if (!$winget) {
+    Warn "winget niet gevonden - bezig met installeren..."
+    try {
+        $tmp = "$env:TEMP\winget-install"
+        New-Item $tmp -ItemType Directory -Force | Out-Null
+        Invoke-WebRequest "https://aka.ms/getwinget"                                                                                    -OutFile "$tmp\winget.msixbundle"       -UseBasicParsing
+        Invoke-WebRequest "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"                                                    -OutFile "$tmp\vclibs.appx"             -UseBasicParsing
+        Invoke-WebRequest "https://github.com/microsoft/microsoft-ui-xaml/releases/download/v2.8.6/Microsoft.UI.Xaml.2.8.x64.appx"    -OutFile "$tmp\xaml.appx"               -UseBasicParsing
+        Add-AppxPackage "$tmp\vclibs.appx"   -ErrorAction SilentlyContinue
+        Add-AppxPackage "$tmp\xaml.appx"     -ErrorAction SilentlyContinue
+        Add-AppxPackage "$tmp\winget.msixbundle"
+        Start-Sleep -Seconds 5
+        $winget = Find-Winget
+    } catch { Warn "winget installatie mislukt: $_" }
+}
+
+if ($winget) { OK "winget: $winget" } else { Warn "winget niet beschikbaar - app-installatie wordt overgeslagen" }
 
 # ─── 1. Alle launcher processen stoppen ──────────────────────────────────────
 Step "1/6" "Launcher processen stoppen"
