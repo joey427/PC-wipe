@@ -6,36 +6,47 @@ $ProgressPreference   = "SilentlyContinue"
 function Step($n, $msg) { Write-Host "`n[$n] $msg" -ForegroundColor Cyan }
 function OK($msg)        { Write-Host "    + $msg" -ForegroundColor Green }
 function Warn($msg)      { Write-Host "    ! $msg" -ForegroundColor Yellow }
-function Del($path) {
+
+function NukePath($path) {
     if (Test-Path $path) {
         cmd /c "rd /s /q `"$path`"" 2>$null
-        if (!(Test-Path $path)) { OK "Verwijderd: $path" }
-        else { Warn "Gedeeltelijk (nog in gebruik): $path" }
+        if (!(Test-Path $path)) { OK "Weg: $path" }
+        else { Warn "Gedeeltelijk (dienst nog actief): $path" }
     }
-}
-function Download($url, $out) {
-    (New-Object System.Net.WebClient).DownloadFile($url, $out)
 }
 
 Write-Host "`n============================================" -ForegroundColor Red
 Write-Host " H20 NUKE - Cleanup + Herinstallatie" -ForegroundColor Red
 Write-Host "============================================`n" -ForegroundColor Red
 
-# ─── 1. Processen stoppen ─────────────────────────────────────────────────────
-Step "1/5" "Launcher processen stoppen"
+# ─── 1. Services en processen stoppen ────────────────────────────────────────
+Step "1/5" "Services en processen stoppen"
 
-@("steam","steamwebhelper","steamservice","EpicGamesLauncher","EpicWebHelper",
-  "RiotClientServices","RiotClientUx","RiotClientUxRender","VALORANT",
-  "Battle.net","Agent","EADesktop","EABackgroundService","Origin",
-  "NvBackend","nvsphelper64","NVDisplay.Container") | ForEach-Object {
-    Get-Process -Name $_ -ErrorAction SilentlyContinue | ForEach-Object {
+$services = @(
+    "NvContainerLocalSystem","NvContainerNetworkService",
+    "NVDisplay.ContainerLocalSystem","nvagent","NvTelemetryContainer",
+    "NvDisplayContainer","Steam Client Service","EpicOnlineServices",
+    "dmwappushservice","DiagTrack"
+)
+foreach ($s in $services) {
+    Stop-Service -Name $s -Force -ErrorAction SilentlyContinue
+    Set-Service  -Name $s -StartupType Disabled -ErrorAction SilentlyContinue
+}
+
+$procs = @("steam","steamwebhelper","steamservice","EpicGamesLauncher",
+    "EpicWebHelper","RiotClientServices","RiotClientUx","RiotClientUxRender",
+    "VALORANT","Battle.net","Agent","EADesktop","Origin",
+    "NvBackend","nvsphelper64","NVDisplay.Container","NVIDIA Share",
+    "nvcontainer","nvcplui")
+foreach ($p in $procs) {
+    Get-Process -Name $p -ErrorAction SilentlyContinue | ForEach-Object {
         $_.Kill(); OK "Gestopt: $($_.Name)"
     }
 }
-Start-Sleep -Seconds 3
+Start-Sleep -Seconds 4
 
-# ─── 2. Mappen en registry verwijderen ────────────────────────────────────────
-Step "2/5" "Bestanden en registry opruimen"
+# ─── 2. Bestanden opruimen ────────────────────────────────────────────────────
+Step "2/5" "Bestanden opruimen"
 
 @(
     "$env:ProgramFiles\Steam",
@@ -46,7 +57,6 @@ Step "2/5" "Bestanden en registry opruimen"
     "${env:ProgramFiles(x86)}\Riot Games",
     "${env:ProgramFiles(x86)}\Blizzard Entertainment",
     "$env:ProgramFiles\Electronic Arts",
-    "${env:ProgramFiles(x86)}\Origin",
     "$env:ProgramFiles\NVIDIA Corporation\NVIDIA app",
     "$env:LOCALAPPDATA\Steam",
     "$env:LOCALAPPDATA\EpicGamesLauncher",
@@ -54,13 +64,12 @@ Step "2/5" "Bestanden en registry opruimen"
     "$env:APPDATA\Riot Games",
     "$env:PROGRAMDATA\Epic",
     "$env:PROGRAMDATA\Riot Games"
-) | ForEach-Object { Del $_ }
+) | ForEach-Object { NukePath $_ }
 
 @("HKCU:\SOFTWARE\Valve","HKCU:\SOFTWARE\Epic Games","HKCU:\SOFTWARE\Riot Games",
   "HKLM:\SOFTWARE\Valve","HKLM:\SOFTWARE\WOW6432Node\Valve",
   "HKLM:\SOFTWARE\Epic Games","HKLM:\SOFTWARE\WOW6432Node\Epic Games",
-  "HKLM:\SOFTWARE\Riot Games","HKLM:\SOFTWARE\WOW6432Node\Riot Games",
-  "HKLM:\SOFTWARE\WOW6432Node\Origin") | ForEach-Object {
+  "HKLM:\SOFTWARE\Riot Games","HKLM:\SOFTWARE\WOW6432Node\Riot Games") | ForEach-Object {
     if (Test-Path $_) {
         Remove-Item $_ -Recurse -Force -Confirm:$false -ErrorAction SilentlyContinue
         OK "Registry: $_"
@@ -78,8 +87,6 @@ Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM" 
 New-Item "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WorkplaceJoin" -Force | Out-Null
 Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WorkplaceJoin" "autoWorkplaceJoin" 0 -Type DWord
 Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Enrollments" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-Stop-Service "dmwappushservice","DiagTrack" -Force -ErrorAction SilentlyContinue
-Set-Service  "dmwappushservice","DiagTrack" -StartupType Disabled -ErrorAction SilentlyContinue
 New-Item "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Force | Out-Null
 Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowTelemetry" 0 -Type DWord
 OK "Privacy ingesteld"
@@ -87,59 +94,52 @@ OK "Privacy ingesteld"
 # ─── 4. Chocolatey installeren ────────────────────────────────────────────────
 Step "4/5" "Chocolatey installeren"
 
-if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
+$chocoExe = "C:\ProgramData\chocolatey\bin\choco.exe"
+if (!(Test-Path $chocoExe)) {
     Set-ExecutionPolicy Bypass -Scope Process -Force
     iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-    $env:PATH += ";C:\ProgramData\chocolatey\bin"
 }
-
-if (Get-Command choco -ErrorAction SilentlyContinue) {
-    OK "Chocolatey gereed"
-} else {
-    Warn "Chocolatey installatie mislukt - probeer directe download"
-}
+if (Test-Path $chocoExe) { OK "Chocolatey gereed" }
+else { Warn "Chocolatey installatie mislukt" }
 
 # ─── 5. Apps installeren ──────────────────────────────────────────────────────
 Step "5/5" "Apps installeren"
 
-$tmp = "$env:TEMP\h20-install"
+$tmp = "$env:TEMP\h20"
 New-Item $tmp -ItemType Directory -Force | Out-Null
 
-if (Get-Command choco -ErrorAction SilentlyContinue) {
-    # Via Chocolatey
-    @(
-        @{ name = "NVIDIA App";          pkg = "nvidia-display-driver" },
-        @{ name = "Steam";               pkg = "steam" },
-        @{ name = "Epic Games Launcher"; pkg = "epicgameslauncher" },
-        @{ name = "Valorant (Riot)";     pkg = "valorant" }
-    ) | ForEach-Object {
-        Write-Host "    Installeren: $($_.name)..." -NoNewline
-        choco install $_.pkg -y --no-progress 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { Write-Host " OK" -ForegroundColor Green }
-        else { Write-Host " mislukt" -ForegroundColor Yellow }
-    }
-} else {
-    # Directe download als fallback
-    Warn "Chocolatey niet beschikbaar - directe download"
-
-    $installers = @(
-        @{ name = "Steam";               url = "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe";          args = "/S" },
-        @{ name = "Epic Games Launcher"; url = "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi"; args = "/qn /norestart" },
-        @{ name = "Riot Client";         url = "https://valorant.secure.dyn.riotcdn.net/channels/public/x/installer/current/live.exe"; args = "--skip-to-install" }
-    )
-
-    foreach ($app in $installers) {
-        Write-Host "    Downloaden: $($app.name)..." -NoNewline
-        $ext  = if ($app.url -match "\.msi") { "msi" } else { "exe" }
-        $file = "$tmp\$($app.name).$ext"
-        try {
-            Download $app.url $file
-            if ($ext -eq "msi") { Start-Process msiexec -ArgumentList "/i `"$file`" $($app.args)" -Wait }
-            else                { Start-Process $file   -ArgumentList $app.args -Wait }
-            Write-Host " OK" -ForegroundColor Green
-        } catch { Write-Host " mislukt" -ForegroundColor Yellow }
-    }
+function Install-Choco($name, $pkg) {
+    Write-Host "    $name via Chocolatey..." -NoNewline
+    & $chocoExe install $pkg -y --no-progress --force 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) { Write-Host " OK" -ForegroundColor Green }
+    else { Write-Host " mislukt ($LASTEXITCODE)" -ForegroundColor Yellow }
 }
+
+function Install-Direct($name, $url, $args) {
+    Write-Host "    $name direct download..." -NoNewline
+    $ext  = if ($url -match "\.msi") { "msi" } else { "exe" }
+    $file = "$tmp\$(([System.IO.Path]::GetRandomFileName())).$ext"
+    try {
+        (New-Object System.Net.WebClient).DownloadFile($url, $file)
+        if ($ext -eq "msi") { Start-Process msiexec -ArgumentList "/i `"$file`" $args" -Wait -NoNewWindow }
+        else                { Start-Process $file -ArgumentList $args -Wait -NoNewWindow }
+        Write-Host " OK" -ForegroundColor Green
+    } catch { Write-Host " mislukt: $_" -ForegroundColor Yellow }
+}
+
+if (Test-Path $chocoExe) {
+    Install-Choco "Steam"               "steam"
+    Install-Choco "Epic Games Launcher" "epicgameslauncher"
+} else {
+    Install-Direct "Steam"               "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe" "/S"
+    Install-Direct "Epic Games Launcher" "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi" "/qn /norestart"
+}
+
+# Riot Client (Valorant) — altijd directe download, niet in Chocolatey
+Install-Direct "Riot Client / Valorant" "https://valorant.secure.dyn.riotcdn.net/channels/public/x/installer/current/live.exe" "--skip-to-install"
+
+# NVIDIA App — directe download
+Install-Direct "NVIDIA App" "https://us.download.nvidia.com/nvapp/client/11.0.0.385/NVIDIA_app_v11.0.0.385.exe" "-s"
 
 Write-Host "`n============================================" -ForegroundColor Green
 Write-Host " Klaar! PC is schoon en apps zijn terug." -ForegroundColor Green
