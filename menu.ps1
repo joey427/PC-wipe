@@ -152,6 +152,13 @@ $btnAll.Add_Click({
 # ── Install logica ────────────────────────────────────────────────────────────
 $chocoExe = "C:\ProgramData\chocolatey\bin\choco.exe"
 
+function Get-Choco {
+    if (Test-Path $script:chocoExe) { return $script:chocoExe }
+    $cmd = Get-Command choco -ErrorAction SilentlyContinue
+    if ($cmd) { $script:chocoExe = $cmd.Source; return $script:chocoExe }
+    return $null
+}
+
 $btnGo.Add_Click({
     $sel = @($script:checks.Values | Where-Object { $_.Checked })
     if ($sel.Count -eq 0) { Log "Niets geselecteerd." $Orange; return }
@@ -159,10 +166,12 @@ $btnGo.Add_Click({
     $btnGo.Enabled = $false
     $btnGo.Text    = "Bezig..."
 
-    if (!(Test-Path $chocoExe)) {
+    if (!(Get-Choco)) {
         Log "Chocolatey installeren..." $White
         Set-ExecutionPolicy Bypass -Scope Process -Force
         iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        $env:Path += ";C:\ProgramData\chocolatey\bin"
+        $script:chocoExe = "C:\ProgramData\chocolatey\bin\choco.exe"
     }
 
     foreach ($cb in $sel) {
