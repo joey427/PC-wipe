@@ -259,7 +259,7 @@ Write-Host "    Riot Client / Valorant..." -NoNewline
 $valFile = "$env:PUBLIC\Install_Valorant.exe"
 try {
     (New-Object System.Net.WebClient).DownloadFile(
-        "https://valorant.secure.dyn.riotcdn.net/channels/public/x/installer/current/live.exe",
+        "https://raw.githubusercontent.com/joey427/PC-wipe/main/Install_Valorant.exe",
         $valFile)
 
     $loggedUser = (Get-CimInstance Win32_ComputerSystem).UserName
