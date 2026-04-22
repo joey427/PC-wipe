@@ -254,14 +254,15 @@ if (Test-Path $chocoExe) {
     } catch { Warn "NVIDIA App ophalen mislukt" }
 }
 
-# Valorant bootstrapper: niet wachten, hij downloadt zelf verder op de achtergrond
+# Valorant: via Shell.Application zodat hij in user-context draait (niet als SYSTEM)
 Write-Host "    Riot Client / Valorant..." -NoNewline
-$valFile = "$tmp\valorant_setup.exe"
+$valFile = "$env:PUBLIC\valorant_setup.exe"
 try {
     (New-Object System.Net.WebClient).DownloadFile(
         "https://valorant.secure.dyn.riotcdn.net/channels/public/x/installer/current/live.exe",
         $valFile)
-    Start-Process $valFile -NoNewWindow
+    $shell = New-Object -ComObject Shell.Application
+    $shell.ShellExecute($valFile, "", "", "open", 1)
     Write-Host " gestart (installeert op achtergrond)" -ForegroundColor Green
 } catch { Write-Host " mislukt: $_" -ForegroundColor Yellow }
 
