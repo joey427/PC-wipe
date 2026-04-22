@@ -36,9 +36,10 @@ foreach ($p in $oldPolicies) {
     Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
 }
 Remove-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" `
-    -Name "NoConnectedUser" -ErrorAction SilentlyContinue
+    -Name "NoConnectedUser" -Force -ErrorAction SilentlyContinue
 
-OK "Policies verwijderd"
+gpupdate /force | Out-Null
+OK "Policies verwijderd en cache ververst"
 
 # ─── 3. Chocolatey installeren ────────────────────────────────────────────────
 Step "3/5" "Chocolatey installeren"

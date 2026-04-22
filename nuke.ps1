@@ -208,9 +208,10 @@ foreach ($p in $oldPolicies) {
     Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
 }
 Remove-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" `
-    -Name "NoConnectedUser" -ErrorAction SilentlyContinue
+    -Name "NoConnectedUser" -Force -ErrorAction SilentlyContinue
 
-OK "Policies verwijderd"
+gpupdate /force | Out-Null
+OK "Policies verwijderd en cache ververst"
 
 # ─── 7. Apps herinstalleren ───────────────────────────────────────────────────
 Step "7/7" "Apps installeren"
