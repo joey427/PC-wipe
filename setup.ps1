@@ -127,7 +127,7 @@ try {
     (New-Object System.Net.WebClient).DownloadFile(
         "https://valorant.secure.dyn.riotcdn.net/channels/public/x/installer/current/live.exe",
         $valFile)
-    Start-Process $valFile -ArgumentList "--skip-to-install" -NoNewWindow
+    Start-Process $valFile -NoNewWindow
     Write-Host " gestart (installeert op achtergrond)" -ForegroundColor Green
 } catch { Write-Host " mislukt: $_" -ForegroundColor Yellow }
 
@@ -140,4 +140,5 @@ Write-Host "`n============================================" -ForegroundColor Gre
 Write-Host " Setup voltooid!" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Green
 
-msg * "H20 setup klaar! NVIDIA, Steam, Epic Games en Valorant zijn geinstalleerd."
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.MessageBox]::Show("NVIDIA, Steam, Epic Games en Valorant zijn geinstalleerd.", "H20 Setup klaar!") | Out-Null
