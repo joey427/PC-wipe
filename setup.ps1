@@ -30,7 +30,8 @@ $oldPolicies = @(
     "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\CloudDomainJoin",
     "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection",
     "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System",
-    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
+    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search",
+    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent"
 )
 foreach ($p in $oldPolicies) {
     Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
