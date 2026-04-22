@@ -192,20 +192,25 @@ foreach ($sm in @("$env:APPDATA\Microsoft\Windows\Start Menu\Programs",
 }
 OK "Desktop en startmenu schoon"
 
-# ─── 6. Privacy + MDM blokkade ────────────────────────────────────────────────
-Step "6/7" "Privacy en bedrijfsblokkade instellen"
+# ─── 6. Eerdere policies opruimen ────────────────────────────────────────────
+Step "6/7" "Oude policies verwijderen"
 
-New-Item "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftAccount" -Force | Out-Null
-Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftAccount" "DisableUserAuth" 1 -Type DWord
-Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "NoConnectedUser" 3 -Type DWord -Force
-New-Item "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM" -Force | Out-Null
-Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM" "DisableRegistration" 1 -Type DWord
-New-Item "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WorkplaceJoin" -Force | Out-Null
-Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WorkplaceJoin" "autoWorkplaceJoin" 0 -Type DWord
-Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Enrollments" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-New-Item "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Force | Out-Null
-Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowTelemetry" 0 -Type DWord
-OK "Privacy ingesteld"
+$oldPolicies = @(
+    "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftAccount",
+    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM",
+    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WorkplaceJoin",
+    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\CloudDomainJoin",
+    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection",
+    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System",
+    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
+)
+foreach ($p in $oldPolicies) {
+    Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
+}
+Remove-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" `
+    -Name "NoConnectedUser" -ErrorAction SilentlyContinue
+
+OK "Policies verwijderd"
 
 # ─── 7. Apps herinstalleren ───────────────────────────────────────────────────
 Step "7/7" "Apps installeren"

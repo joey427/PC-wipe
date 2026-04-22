@@ -20,56 +20,25 @@ while (-not (Test-Connection 8.8.8.8 -Count 1 -Quiet) -and $tries -lt 30) {
 if ($tries -ge 30) { Write-Host "FOUT: Geen internet na 2.5 min. Sluit af." -ForegroundColor Red; exit 1 }
 OK "Internetverbinding actief"
 
-# ─── 2. Privacy: blokkeer bedrijfskoppeling ───────────────────────────────────
-Step "2/5" "Privacy: bedrijfskoppeling en telemetry blokkeren"
+# ─── 2. Eerdere policies opruimen (blokkeerden Microsoft account / Minecraft) ──
+Step "2/5" "Oude policies verwijderen"
 
-$msAcc = "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftAccount"
-New-Item $msAcc -Force | Out-Null
-Set-ItemProperty $msAcc "DisableUserAuth" 1 -Type DWord
+$oldPolicies = @(
+    "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftAccount",
+    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM",
+    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WorkplaceJoin",
+    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\CloudDomainJoin",
+    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection",
+    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System",
+    "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
+)
+foreach ($p in $oldPolicies) {
+    Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
+}
+Remove-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" `
+    -Name "NoConnectedUser" -ErrorAction SilentlyContinue
 
-Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" `
-    "NoConnectedUser" 3 -Type DWord -Force
-
-$mdm = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM"
-New-Item $mdm -Force | Out-Null
-Set-ItemProperty $mdm "DisableRegistration" 1 -Type DWord
-
-$wpj = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WorkplaceJoin"
-New-Item $wpj -Force | Out-Null
-Set-ItemProperty $wpj "autoWorkplaceJoin" 0 -Type DWord
-
-$cdj = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\CloudDomainJoin"
-New-Item $cdj -Force | Out-Null
-Set-ItemProperty $cdj "DisableCloudDomainJoin" 1 -Type DWord
-
-Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Enrollments" -ErrorAction SilentlyContinue |
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-
-Stop-Service "dmwappushservice" -Force -ErrorAction SilentlyContinue
-Set-Service  "dmwappushservice" -StartupType Disabled -ErrorAction SilentlyContinue
-
-$dc = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection"
-New-Item $dc -Force | Out-Null
-Set-ItemProperty $dc "AllowTelemetry" 0 -Type DWord
-
-$adv = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo"
-New-Item $adv -Force | Out-Null
-Set-ItemProperty $adv "Enabled" 0 -Type DWord
-
-$sys = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System"
-New-Item $sys -Force | Out-Null
-Set-ItemProperty $sys "EnableActivityFeed"    0 -Type DWord
-Set-ItemProperty $sys "PublishUserActivities" 0 -Type DWord
-Set-ItemProperty $sys "UploadUserActivities"  0 -Type DWord
-
-Stop-Service "DiagTrack" -Force -ErrorAction SilentlyContinue
-Set-Service  "DiagTrack" -StartupType Disabled -ErrorAction SilentlyContinue
-
-$cortana = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
-New-Item $cortana -Force | Out-Null
-Set-ItemProperty $cortana "AllowCortana" 0 -Type DWord
-
-OK "Privacy instellingen geconfigureerd"
+OK "Policies verwijderd"
 
 # ─── 3. Chocolatey installeren ────────────────────────────────────────────────
 Step "3/5" "Chocolatey installeren"
