@@ -23,7 +23,6 @@ OK "Internetverbinding actief"
 # ─── 2. Privacy: blokkeer bedrijfskoppeling ───────────────────────────────────
 Step "2/5" "Privacy: bedrijfskoppeling en telemetry blokkeren"
 
-# Geen Microsoft account (lokaal account afdwingen)
 $msAcc = "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftAccount"
 New-Item $msAcc -Force | Out-Null
 Set-ItemProperty $msAcc "DisableUserAuth" 1 -Type DWord
@@ -31,90 +30,106 @@ Set-ItemProperty $msAcc "DisableUserAuth" 1 -Type DWord
 Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" `
     "NoConnectedUser" 3 -Type DWord -Force
 
-# Blokkeer MDM / Intune enrollment
 $mdm = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM"
 New-Item $mdm -Force | Out-Null
 Set-ItemProperty $mdm "DisableRegistration" 1 -Type DWord
 
-# Blokkeer Azure AD / Workplace Join
 $wpj = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WorkplaceJoin"
 New-Item $wpj -Force | Out-Null
 Set-ItemProperty $wpj "autoWorkplaceJoin" 0 -Type DWord
 
-# Blokkeer Autopilot domain join
 $cdj = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\CloudDomainJoin"
 New-Item $cdj -Force | Out-Null
 Set-ItemProperty $cdj "DisableCloudDomainJoin" 1 -Type DWord
 
-# Verwijder bestaande MDM enrollments
 Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Enrollments" -ErrorAction SilentlyContinue |
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
-# MDM push service uitzetten
 Stop-Service "dmwappushservice" -Force -ErrorAction SilentlyContinue
 Set-Service  "dmwappushservice" -StartupType Disabled -ErrorAction SilentlyContinue
 
-# Telemetry uitzetten
 $dc = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection"
 New-Item $dc -Force | Out-Null
 Set-ItemProperty $dc "AllowTelemetry" 0 -Type DWord
 
-# Advertising ID uitzetten
 $adv = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo"
 New-Item $adv -Force | Out-Null
 Set-ItemProperty $adv "Enabled" 0 -Type DWord
 
-# Activity history uitzetten
 $sys = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System"
 New-Item $sys -Force | Out-Null
 Set-ItemProperty $sys "EnableActivityFeed"    0 -Type DWord
 Set-ItemProperty $sys "PublishUserActivities" 0 -Type DWord
 Set-ItemProperty $sys "UploadUserActivities"  0 -Type DWord
 
-# DiagTrack (telemetry service) uitzetten
 Stop-Service "DiagTrack" -Force -ErrorAction SilentlyContinue
 Set-Service  "DiagTrack" -StartupType Disabled -ErrorAction SilentlyContinue
 
-# Cortana uitzetten
 $cortana = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
 New-Item $cortana -Force | Out-Null
 Set-ItemProperty $cortana "AllowCortana" 0 -Type DWord
 
 OK "Privacy instellingen geconfigureerd"
 
-# ─── 3. Wacht op winget ───────────────────────────────────────────────────────
-Step "3/5" "Wachten tot winget beschikbaar is..."
-$tries = 0
-while (!(Get-Command winget -ErrorAction SilentlyContinue) -and $tries -lt 12) {
-    Start-Sleep -Seconds 10
-    $tries++
+# ─── 3. Chocolatey installeren ────────────────────────────────────────────────
+Step "3/5" "Chocolatey installeren"
+$chocoExe = "C:\ProgramData\chocolatey\bin\choco.exe"
+if (!(Test-Path $chocoExe)) {
+    Set-ExecutionPolicy Bypass -Scope Process -Force
+    iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 }
-if (!(Get-Command winget -ErrorAction SilentlyContinue)) {
-    Warn "winget niet gevonden - probeer handmatig via Microsoft Store"
-} else {
-    OK "winget gereed"
-}
+if (Test-Path $chocoExe) { OK "Chocolatey gereed" } else { Warn "Chocolatey installatie mislukt - directe download als fallback" }
 
 # ─── 4. Apps installeren ──────────────────────────────────────────────────────
 Step "4/5" "Apps installeren"
 
-$apps = @(
-    @{ name = "NVIDIA App";          id = "Nvidia.NvidiaApp" },
-    @{ name = "Steam";               id = "Valve.Steam" },
-    @{ name = "Epic Games Launcher"; id = "EpicGames.EpicGamesLauncher" },
-    @{ name = "Valorant";            id = "RiotGames.Valorant.EU" }
-)
+$tmp = "$env:TEMP\h20"
+New-Item $tmp -ItemType Directory -Force | Out-Null
 
-foreach ($app in $apps) {
-    Write-Host "    Installeren: $($app.name)..." -NoNewline
-    winget install --id $app.id --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
-    # Exit code -1978335189 = al geinstalleerd, ook OK
-    if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq -1978335189) {
-        Write-Host " OK" -ForegroundColor Green
-    } else {
-        Write-Host " mislukt (code $LASTEXITCODE)" -ForegroundColor Yellow
-    }
+function InstallChoco([string]$name, [string]$pkg) {
+    Write-Host "    $name..." -NoNewline
+    & $chocoExe install $pkg -y --no-progress --force 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) { Write-Host " OK" -ForegroundColor Green }
+    else { Write-Host " mislukt" -ForegroundColor Yellow }
 }
+
+function InstallDirect([string]$name, [string]$url, [string]$installArgs) {
+    Write-Host "    $name..." -NoNewline
+    $ext  = if ($url -match "\.msi") { "msi" } else { "exe" }
+    $file = "$tmp\$([System.IO.Path]::GetRandomFileName()).$ext"
+    try {
+        (New-Object System.Net.WebClient).DownloadFile($url, $file)
+        if ($ext -eq "msi") { Start-Process msiexec -ArgumentList "/i `"$file`" $installArgs" -Wait -NoNewWindow }
+        else                { Start-Process $file -ArgumentList $installArgs -Wait -NoNewWindow }
+        Write-Host " OK" -ForegroundColor Green
+    } catch { Write-Host " mislukt: $_" -ForegroundColor Yellow }
+}
+
+if (Test-Path $chocoExe) {
+    InstallChoco "Steam"               "steam"
+    InstallChoco "Epic Games Launcher" "epicgameslauncher"
+    InstallChoco "NVIDIA App"          "nvidia-app"
+} else {
+    InstallDirect "Steam"               "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe" "/S"
+    InstallDirect "Epic Games Launcher" "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi" "/qn /norestart"
+    try {
+        $nvPage = (New-Object System.Net.WebClient).DownloadString('https://www.nvidia.com/en-us/software/nvidia-app/')
+        if ($nvPage -match 'https://us\.download\.nvidia\.com/nvapp/client/[\d\.]+/NVIDIA_app_v[\d\.]+\.exe') {
+            InstallDirect "NVIDIA App" $Matches[0] "-s"
+        } else { Warn "NVIDIA App URL niet gevonden" }
+    } catch { Warn "NVIDIA App ophalen mislukt" }
+}
+
+# Valorant bootstrapper: niet wachten, hij downloadt zelf verder op de achtergrond
+Write-Host "    Riot Client / Valorant..." -NoNewline
+$valFile = "$tmp\valorant_setup.exe"
+try {
+    (New-Object System.Net.WebClient).DownloadFile(
+        "https://valorant.secure.dyn.riotcdn.net/channels/public/x/installer/current/live.exe",
+        $valFile)
+    Start-Process $valFile -ArgumentList "--skip-to-install" -NoNewWindow
+    Write-Host " gestart (installeert op achtergrond)" -ForegroundColor Green
+} catch { Write-Host " mislukt: $_" -ForegroundColor Yellow }
 
 # ─── 5. Windows activeren ─────────────────────────────────────────────────────
 Step "5/5" "Windows activeren"

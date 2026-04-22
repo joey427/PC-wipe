@@ -160,7 +160,7 @@
         <!-- USB kan VOOR dit punt eruit - script draait van GitHub -->
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/JOUW-GEBRUIKER/JOUW-REPO/main/setup.ps1 | iex"</CommandLine>
+          <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/joey427/PC-wipe/main/setup.ps1 | iex"</CommandLine>
           <Description>H20 Setup van GitHub</Description>
           <RequiresUserInput>false</RequiresUserInput>
         </SynchronousCommand>
