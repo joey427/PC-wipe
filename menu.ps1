@@ -159,16 +159,22 @@ $btnGo.Add_Click({
     $btnGo.Enabled = $false
     $btnGo.Text    = "Bezig..."
 
-    # Refresh PATH zodat choco gevonden wordt na installatie in dezelfde sessie
+    # PATH verversen en choco.exe locatie bepalen
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
                 [System.Environment]::GetEnvironmentVariable("Path","User")
 
-    $chocoFolder = "C:\ProgramData\chocolatey"
-    if (!(Test-Path $chocoFolder)) {
-        Log "Chocolatey installeren..." $White
-        Set-ExecutionPolicy Bypass -Scope Process -Force
-        iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-        $env:Path += ";C:\ProgramData\chocolatey\bin"
+    $script:chocoExe = "C:\ProgramData\chocolatey\bin\choco.exe"
+    if (!(Test-Path $script:chocoExe)) {
+        $cmd = Get-Command choco -ErrorAction SilentlyContinue
+        if ($cmd) {
+            $script:chocoExe = $cmd.Source
+        } else {
+            Log "Chocolatey installeren..." $White
+            Set-ExecutionPolicy Bypass -Scope Process -Force
+            iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+            $env:Path += ";C:\ProgramData\chocolatey\bin"
+            $script:chocoExe = "C:\ProgramData\chocolatey\bin\choco.exe"
+        }
     }
 
     foreach ($cb in $sel) {
@@ -197,7 +203,7 @@ $btnGo.Add_Click({
         }
 
         Log "$($app.Name) installeren..." $White
-        & $chocoExe install $app.Pkg -y --no-progress --force 2>&1 | Out-Null
+        & $script:chocoExe install $app.Pkg -y --no-progress --force 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) { Log "+ $($app.Name) OK" $Green }
         else                     { Log "! $($app.Name) mislukt (choco code $LASTEXITCODE)" $Orange }
     }
