@@ -254,16 +254,26 @@ if (Test-Path $chocoExe) {
     } catch { Warn "NVIDIA App ophalen mislukt" }
 }
 
-# Valorant: via Shell.Application zodat hij in user-context draait (niet als SYSTEM)
+# Valorant: download + start als ingelogde user via scheduled task
 Write-Host "    Riot Client / Valorant..." -NoNewline
-$valFile = "$env:PUBLIC\valorant_setup.exe"
+$valFile = "$env:PUBLIC\Install_Valorant.exe"
 try {
     (New-Object System.Net.WebClient).DownloadFile(
         "https://valorant.secure.dyn.riotcdn.net/channels/public/x/installer/current/live.exe",
         $valFile)
-    $shell = New-Object -ComObject Shell.Application
-    $shell.ShellExecute($valFile, "", "", "open", 1)
-    Write-Host " gestart (installeert op achtergrond)" -ForegroundColor Green
+
+    $loggedUser = (Get-CimInstance Win32_ComputerSystem).UserName
+    if ($loggedUser) {
+        $action    = New-ScheduledTaskAction -Execute $valFile
+        $trigger   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(5)
+        $principal = New-ScheduledTaskPrincipal -UserId $loggedUser -LogonType Interactive -RunLevel Limited
+        $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+        Register-ScheduledTask -TaskName "H20-Valorant-Install" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+        Write-Host " gestart als $loggedUser" -ForegroundColor Green
+    } else {
+        Copy-Item $valFile "$env:PUBLIC\Desktop\Install_Valorant.exe" -Force
+        Write-Host " op bureaublad gezet - dubbelklik om te installeren" -ForegroundColor Yellow
+    }
 } catch { Write-Host " mislukt: $_" -ForegroundColor Yellow }
 
 Write-Host "`n============================================" -ForegroundColor Green
